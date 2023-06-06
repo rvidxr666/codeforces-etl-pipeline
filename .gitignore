@@ -1,0 +1,10 @@
+codeforces-problem-scraper-api
+check-api
+*.docx
+*.txt
+*.tmp
+**/data
+**/data_test
+venv
+**/logs
+**/plugins
