@@ -1,7 +1,13 @@
 
 CREATE DATABASE IF NOT EXISTS dt_warehouse;
+
 USE dt_warehouse;
 
+CREATE TABLE last_execution (
+    last_execution_date DATE
+);
+
+-- INSERT INTO last_execution VALUES('2024-03-02 00:00:00');
 
 -- Landing Table for Submissions
 CREATE TABLE load_submissions (
@@ -24,6 +30,7 @@ CREATE TABLE contest_stg (
     name text  NOT NULL,
     start timestamp  NOT NULL,
     duration int  NOT NULL,
+    end timestamp  NOT NULL,
     type text  NOT NULL,
     CONSTRAINT Contest_pk PRIMARY KEY (id)
 );
@@ -104,6 +111,7 @@ CREATE TABLE contest_prod (
     name text  NOT NULL,
     start timestamp  NOT NULL,
     duration int  NOT NULL,
+    end timestamp  NOT NULL,
     type text  NOT NULL,
     CONSTRAINT Contest_pk_prod PRIMARY KEY (id)
 );
@@ -183,6 +191,9 @@ CREATE TABLE verdict_prod(
 DELIMITER |
 CREATE PROCEDURE InsertSubmissions()
 BEGIN
+
+    TRUNCATE TABLE submissions_stg;
+
 	INSERT INTO submissions_stg
 		SELECT
 			s.id AS id,
@@ -208,28 +219,69 @@ DELIMITER |
 CREATE PROCEDURE MergeStgToProd()
 BEGIN
 	    -- Loading contest tables
-	INSERT IGNORE INTO contest_prod
-		SELECT * FROM contest_stg;
-        
-		-- Loading problem tables
-	INSERT IGNORE INTO problem_prod
-		SELECT * FROM problem_stg;
-        
-    	-- Loading language tables
-	INSERT IGNORE INTO programming_language_prod
-		SELECT * FROM programming_language_stg;
-        
-	-- Loading user tables
-	INSERT IGNORE INTO user_prod
-		SELECT * FROM user_stg;
-        
-	-- Loading verdict tables
-    INSERT IGNORE INTO verdict_prod
-		SELECT * FROM verdict_stg;
-	
-    -- Loading submissions 
-    INSERT IGNORE INTO submissions_prod
-		SELECT * FROM submissions_stg;
+	INSERT INTO contest_prod
+    SELECT cs.id,
+           cs.name,
+           cs.start,
+           cs.duration,
+           cs.end,
+           cs.type
+    FROM contest_stg cs
+    LEFT JOIN contest_prod cp ON cs.id = cp.id
+    WHERE cp.id IS NULL;
+
+    -- Loading problem tables
+    INSERT INTO problem_prod
+    SELECT s.id_problem, s.name, s.tags
+    FROM problem_stg s
+    LEFT JOIN problem_prod p
+    ON p.id_problem = s.id_problem
+    WHERE p.id_problem IS NULL;
+
+    -- Loading language tables
+    INSERT INTO programming_language_prod
+    SELECT 0, stg.name FROM programming_language_stg stg
+    LEFT JOIN programming_language_prod prd
+    ON stg.name = prd.name
+    WHERE prd.name IS NULL;
+
+    INSERT INTO user_prod
+    SELECT
+        0,
+        stg.country,
+        stg.rating,
+        stg.nickname,
+        stg.title,
+        stg.registration_date
+    FROM user_stg stg
+    LEFT JOIN user_prod prd
+    ON stg.nickname = prd.nickname
+    WHERE prd.nickname IS NULL;
+
+    INSERT INTO verdict_prod
+    SELECT 0, stg.name FROM verdict_stg stg
+    LEFT JOIN verdict_prod prd
+    ON stg.name = prd.name
+    WHERE prd.name IS NULL;
+
+    INSERT INTO submissions_prod
+    SELECT
+        s.id AS id,
+        s.timestamp,
+        s.id_contest,
+        s.id_problem,
+        u.id AS id_author,
+        p.id AS id_programming_language,
+        v.id AS id_verdict,
+        s.time_consumed,
+        s.memory_usage
+    FROM load_submissions s
+        INNER JOIN user_prod u ON s.author = u.nickname
+        INNER JOIN programming_language_prod p ON s.programming_language = p.name
+        INNER JOIN verdict_prod v ON s.verdict = v.name
+        LEFT JOIN submissions_prod sp ON s.id = sp.id
+    WHERE sp.id IS NULL;
+
 END
 |
 DELIMITER ;
